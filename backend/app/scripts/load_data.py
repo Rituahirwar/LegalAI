@@ -1,89 +1,127 @@
 import os
 import json
 from sqlalchemy.orm import Session
+from sqlalchemy import text # <--- Added text import here
 import sys
 
-# 1. Add the backend directory to the path so we can import 'app'
-# This ensures Python knows where to find database.py and models.py
+# Setup paths
 backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(backend_dir)
 
 from app.database import SessionLocal
 from app.models import LegalDocument
 
-# 2. Point exactly to where your JSON files are located based on your new path
-# We are currently in: LegalAI/backend/app/scripts/load_json.py
-# The data is in:      LegalAI/backend/app/scripts/data/raw/
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 JSON_DIR = os.path.join(CURRENT_DIR, "data", "raw")
 
+def extract_all_sections(data, current_chapter="Unknown"):
+    """
+    Recursively digs through ANY JSON structure to find legal sections.
+    It looks for keys like 'description', 'desc', or 'text'.
+    """
+    sections = []
+    
+    if isinstance(data, list):
+        for item in data:
+            sections.extend(extract_all_sections(item, current_chapter))
+            
+    elif isinstance(data, dict):
+        # Try to catch chapter names if they exist at this level
+        chap = str(data.get('chapter', data.get('chapter_title', current_chapter)))
+        
+        # Check if this dictionary IS a legal section (does it have a description/text?)
+        desc = str(data.get('description', data.get('desc', data.get('section_desc', data.get('text', ''))))).strip()
+        
+        if desc and desc.lower() != 'none':
+            # We found a section! Let's grab its number and title
+            sec_num = str(data.get('number', data.get('section', data.get('Section', data.get('id', ''))))).strip()
+            title = str(data.get('title', data.get('section_title', data.get('heading', '')))).strip()
+            
+            sections.append({
+                "chapter": chap,
+                "section": sec_num,
+                "title": title,
+                "description": desc
+            })
+            
+        # Keep digging deeper into the JSON just in case there are nested sections
+        for key, value in data.items():
+            if isinstance(value, (dict, list)):
+                sections.extend(extract_all_sections(value, chap))
+                
+    return sections
+
 def process_and_load_json(filepath: str, db: Session):
     filename = os.path.basename(filepath)
-    # Extract Act Name (e.g., 'ipc.json' -> 'IPC')
     act_name = filename.replace('.json', '').upper() 
     
-    print(f"\n📥 Processing {act_name} from {filename}...")
+    print(f"\n📥 Digging into {act_name}...")
     
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
-        # The CivicTech JSON usually puts chapters inside a "structure" key, 
-        # or just as a list at the root. We handle both.
-        chapters = []
-        if isinstance(data, dict):
-            if "structure" in data:
-                chapters = data["structure"].get("chapters", [])
-            elif "chapters" in data:
-                chapters = data["chapters"]
-        elif isinstance(data, list):
-            chapters = data
+        # --- HANDLE THE BROKEN HMA.JSON/IDA.JSON FORMAT ---
+        if isinstance(data, list) and len(data) > 0 and "chapter,section,section_title,section_desc" in data[0]:
+            print(f"⚠️ Detected broken CSV-in-JSON format for {act_name}. Parsing manually...")
+            records_inserted = 0
+            last_sec_num = "Unknown"
+            last_title = "Unknown"
+            
+            for item in data:
+                val = item.get("chapter,section,section_title,section_desc", "")
+                if not val.strip(): continue
+                
+                parts = val.split(',', 3)
+                if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit():
+                    last_sec_num = parts[1].strip()
+                    last_title = parts[2].strip().strip('"')
+                    desc = parts[3].strip().strip('"')
+                else:
+                    desc = val.strip().strip('"')
 
-        if not chapters:
-            print(f"⚠️ Warning: Could not find chapters in {filename}. Skipping.")
+                full_rag_text = f"Law/Act: {act_name}\nSection: {last_sec_num}\nTitle: {last_title}\nContent: {desc}"
+                db.add(LegalDocument(act_name=act_name, section_number=last_sec_num, section_title=last_title, rag_text=full_rag_text))
+                records_inserted += 1
+                if records_inserted % 100 == 0: db.commit()
+            
+            db.commit()
+            print(f"✅ Successfully loaded {records_inserted} sections for {act_name}!")
+            return
+
+        # Run the universal extractor for properly formatted JSONs
+        extracted_sections = extract_all_sections(data)
+
+        if not extracted_sections:
+            print(f"⚠️ Warning: Could not find any descriptions/text in {filename}.")
             return
 
         records_inserted = 0
 
-        # Loop through the JSON hierarchy
-        for chapter in chapters:
-            chap_num = str(chapter.get("number", ""))
-            chap_title = str(chapter.get("title", ""))
-            sections = chapter.get("sections", [])
+        for sec in extracted_sections:
+            full_rag_text = (
+                f"Law/Act: {act_name}\n"
+                f"Chapter: {sec['chapter']}\n"
+                f"Section: {sec['section']}\n"
+                f"Title: {sec['title']}\n"
+                f"Content: {sec['description']}"
+            )
             
-            for section in sections:
-                sec_num = str(section.get("number", ""))
-                sec_title = str(section.get("title", ""))
-                sec_desc = str(section.get("description", ""))
-                
-                # --- CRITICAL STEP FOR RAG ---
-                # We format the text so the AI knows exactly what law it is reading
-                full_rag_text = (
-                    f"Law/Act: {act_name}\n"
-                    f"Chapter: {chap_num} - {chap_title}\n"
-                    f"Section: {sec_num}\n"
-                    f"Title: {sec_title}\n"
-                    f"Content: {sec_desc}"
-                )
-                
-                # Create the database record
-                db_record = LegalDocument(
-                    act_name=act_name,
-                    section_number=sec_num,
-                    section_title=sec_title,
-                    rag_text=full_rag_text
-                )
-                
-                db.add(db_record)
-                records_inserted += 1
+            db_record = LegalDocument(
+                act_name=act_name,
+                section_number=sec['section'],
+                section_title=sec['title'],
+                rag_text=full_rag_text
+            )
+            
+            db.add(db_record)
+            records_inserted += 1
 
-                # Commit every 100 rows to avoid memory spikes
-                if records_inserted % 100 == 0:
-                    db.commit()
+            if records_inserted % 100 == 0:
+                db.commit()
 
-        # Commit any remaining rows for this file
         db.commit()
-        print(f"✅ Successfully loaded {records_inserted} sections for {act_name}!")
+        print(f"✅ Successfully extracted and loaded {records_inserted} sections for {act_name}!")
 
     except Exception as e:
         db.rollback()
@@ -91,32 +129,24 @@ def process_and_load_json(filepath: str, db: Session):
 
 def main():
     if not os.path.exists(JSON_DIR):
-        print(f"❌ Error: The directory does not exist: {JSON_DIR}")
-        print("Please ensure your JSON files are exactly in: backend/app/scripts/data/raw/")
+        print(f"❌ Error: Directory not found: {JSON_DIR}")
         return
 
-    print(f"🚀 Starting Direct JSON Ingestion from: {JSON_DIR}")
-    
-    # Open the database connection
+    print(f"🚀 Starting Universal JSON Ingestion...")
     db = SessionLocal()
     
     try:
-        # Find all .json files in the directory
+        # Wrapped in text() for SQLAlchemy 2.0+
+        db.execute(text("TRUNCATE TABLE legal_documents RESTART IDENTITY;"))
+        db.commit()
+        print("🧹 Cleaned old database entries...")
+
         json_files = [f for f in os.listdir(JSON_DIR) if f.endswith('.json')]
-        
-        if not json_files:
-            print(f"⚠️ No JSON files found in {JSON_DIR}")
-            return
-            
-        # Process each file one by one
         for file in json_files:
-            filepath = os.path.join(JSON_DIR, file)
-            process_and_load_json(filepath, db)
+            process_and_load_json(os.path.join(JSON_DIR, file), db)
             
-        print("\n🎉 ALL LAWS LOADED SUCCESSFULLY into Supabase!")
-        
+        print("\n🎉 ALL JSON LAWS LOADED SUCCESSFULLY!")
     finally:
-        # Always close the connection
         db.close()
 
 if __name__ == "__main__":
