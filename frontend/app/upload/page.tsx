@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { UploadPanel } from "@/components/upload-panel";
 
 export default function UploadPage() {
-  redirect("/chat");
+  return <UploadPanel />;
 }
+

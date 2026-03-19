@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { HistoryFeed } from "@/components/history-feed";
 
 export default function HistoryPage() {
-  redirect("/chat");
+  return <HistoryFeed />;
 }
+

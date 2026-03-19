@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { MappingSearch } from "@/components/mapping-search";
 
 export default function MappingPage() {
-  redirect("/chat");
+  return <MappingSearch />;
 }
+

@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { DraftBuilder } from "@/components/draft-builder";
 
 export default function DraftPage() {
-  redirect("/chat");
+  return <DraftBuilder />;
 }
+
