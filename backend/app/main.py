@@ -1,23 +1,17 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
-# Import the new modules we created
-from .app import models
+from . import models
 from .database import SessionLocal, engine
+from .retrieval import hybrid_search
+from .llm import generate_legal_response # <-- IMPORT THE NEW AI ENGINE
 
-# This will create the tables in the database if they don't exist
-# (Though we already created them with the SQL script)
 models.Base.metadata.create_all(bind=engine)
 
-# Initialize FastAPI App
-app = FastAPI(
-    title="Indian Legal AI Assistant API",
-    description="Backend for the AI-powered legal platform mapping IPC/BNS and answering legal queries.",
-    version="1.0.0"
-)
+app = FastAPI(title="Indian Legal AI API", version="1.0.0")
 
-# Setup CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,7 +20,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Dependency to get a database session
 def get_db():
     db = SessionLocal()
     try:
@@ -34,7 +27,10 @@ def get_db():
     finally:
         db.close()
 
-# --- ROUTES ---
+# Request Model
+class QueryRequest(BaseModel):
+    query: str
+    top_k: int = 4 # Let's fetch the top 4 laws to give the AI more context
 
 @app.get("/")
 def read_root():
@@ -42,18 +38,39 @@ def read_root():
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "success",
-        "message": "Backend is running perfectly!",
-        "version": "1.0.0"
-    }
+    return {"status": "success", "message": "Backend is running!"}
 
-# --- NEW DATABASE TEST ROUTE ---
 @app.get("/test-db")
 def test_database_connection(db: Session = Depends(get_db)):
     try:
-        # A simple query to test the connection
         db.execute('SELECT 1')
         return {"status": "success", "message": "Database connection is healthy!"}
     except Exception as e:
         return {"status": "error", "message": f"Database connection failed: {str(e)}"}
+
+# --- THE NEW RAG ENDPOINT ---
+@app.post("/chat") # Changed name from /search to /chat
+def chat_with_legal_ai(request: QueryRequest, db: Session = Depends(get_db)):
+    """
+    Full RAG Pipeline:
+    1. Search database for laws (Hybrid Search)
+    2. Send laws + query to Groq LLM
+    3. Return AI answer + source laws
+    """
+    print(f"User asked: {request.query}")
+    
+    # 1. Retrieve the relevant laws
+    retrieved_laws = hybrid_search(db=db, query=request.query, top_k=request.top_k)
+    
+    if isinstance(retrieved_laws, dict) and "error" in retrieved_laws:
+        raise HTTPException(status_code=500, detail=retrieved_laws["error"])
+        
+    # 2. Generate the AI Response using Groq
+    ai_answer = generate_legal_response(user_query=request.query, retrieved_contexts=retrieved_laws)
+    
+    # 3. Return both the English answer AND the raw citations
+    return {
+        "query": request.query,
+        "answer": ai_answer,
+        "citations": retrieved_laws # We send this so the frontend can display "Sources"
+    }
