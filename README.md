@@ -1,142 +1,99 @@
+# LegalAI
 
-# AI-Powered Legal Helper for Indian Laws ⚖️🤖
+LegalAI is a full-stack Indian legal assistant workspace built around the frozen product scope:
 
-An intelligent legal assistant designed to simplify Indian laws for citizens using **Artificial Intelligence, Natural Language Processing, and Retrieval-Augmented Generation (RAG)**.
+- AI legal assistant for grounded Q&A
+- IPC to BNS mapping
+- Legal document explainer for PDF and TXT files
+- Legal document drafter
+- Basic authentication
+- Logging and history storage
 
-The platform helps users **understand laws, generate legal documents, explore judgments, and stay updated with legal changes** in a simple and accessible way.
+## Project structure
 
----
+```text
+LegalAI/
+├── backend/
+│   ├── app/
+│   ├── data/
+│   ├── scripts/
+│   ├── main.py
+│   ├── requirements.txt
+│   └── .env.example
+├── frontend/
+│   ├── app/
+│   ├── components/
+│   ├── lib/
+│   └── package.json
+├── docker/
+├── docs/
+└── README.md
+```
 
-# Problem Statement
+## Backend
 
-India has a large and complex legal system consisting of multiple acts, amendments, government schemes, and judicial precedents. Legal information is often difficult for citizens to understand due to:
+The backend uses FastAPI with SQLAlchemy and JWT auth.
 
-* Complex legal language
-* Fragmented information sources
-* Expensive legal consultations
-* Confusion between **Indian Penal Code (IPC)** and **Bharatiya Nyaya Sanhita (BNS)**
+Implemented endpoints:
 
-As a result, many people rely on **unverified internet sources**, which can lead to misinformation and poor legal decisions.
+- `GET /api/v1/health`
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/auth/me`
+- `POST /api/v1/query`
+- `GET /api/v1/map?code=420`
+- `POST /api/v1/upload`
+- `POST /api/v1/draft`
+- `GET /api/v1/history`
 
----
+### Run backend
 
-# Solution
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+uvicorn main:app --reload
+```
 
-The **AI-Powered Legal Helper** provides a **citizen-friendly digital platform** that simplifies Indian laws and provides reliable legal guidance using verified sources.
+The default database is local SQLite for quick startup. Set `DATABASE_URL` to PostgreSQL when you are ready for the production database phase.
 
-The system leverages:
+## Frontend
 
-* Artificial Intelligence
-* Natural Language Processing (NLP)
-* Retrieval-Augmented Generation (RAG)
-* Verified government datasets
+The frontend uses Next.js App Router and connects to the backend through `NEXT_PUBLIC_API_BASE_URL`.
 
-This allows users to **ask legal questions in natural language and receive accurate, simplified answers.**
+Pages included:
 
----
+- `/`
+- `/login`
+- `/chat`
+- `/mapping`
+- `/upload`
+- `/draft`
+- `/history`
 
-# Core Features
+### Run frontend
 
-## 1. AI Legal Assistant
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-A conversational AI chatbot that answers legal queries related to Indian laws in simple language using verified legal sources.
+Create a `.env.local` file in `frontend/` if needed:
 
-## 2. Law Discovery & IPC → BNS Mapping
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1
+```
 
-Helps users identify applicable legal sections and clearly explains the transition from **IPC to BNS**, including changes in punishments and legal interpretations.
+## Docker
 
-## 3. Legal Draft Generator
+Basic Docker files are included for local containerized setup.
 
-Automatically generates commonly used legal documents such as:
+## Notes
 
-* Bail applications
-* Legal notices
-* Complaints
-* Affidavits
+- `backend/data/` is reserved for uploads and legal datasets.
+- `backend/scripts/process_ipc.py` can still be used for dataset preparation.
+- The current query workflow uses a conservative placeholder retrieval pipeline so the full RAG stack can be added next without rewriting the API surface.
 
-Documents follow standard legal formats.
-
-## 4. Case Law & Judgment Explorer
-
-Allows users to search and explore **Supreme Court and High Court judgments**, with simplified summaries linked to relevant legal sections.
-
-## 5. Government Schemes & Legal Benefits Hub
-
-Provides information about **government schemes, legal aid programs, and citizen benefits** relevant to the user's situation.
-
-## 6. Legal Updates & Policy Tracker
-
-Tracks updates related to:
-
-* New laws
-* Amendments
-* Government policies
-* Legal reforms
-
-Ensures users receive **up-to-date legal information.**
-
-## 7. Legal Document Explainer
-
-Users can upload legal documents such as:
-
-* FIRs
-* Court notices
-* Legal orders
-
-The AI explains them in **simple language** and highlights key points.
-
----
-
-# Expected Impact
-
-* Improves **legal awareness among citizens**
-* Reduces dependency on **expensive legal consultations**
-* Provides **verified legal information**
-* Promotes **access to justice**
-* Supports **Digital India initiatives**
-
----
-
-# Target Users
-
-* Common citizens
-* Students and researchers
-* Startups and MSMEs
-* NGOs and legal aid organizations
-* Educational institutions
-
----
-
-# Tech Stack
-
-Example stack (can be modified):
-
-Frontend
-
-* React / Next.js
-
-Backend
-
-* Node.js / Python (FastAPI)
-
-AI & NLP
-
-* LLM APIs
-* RAG Architecture
-* Vector Database (FAISS / Pinecone)
-
-Data Sources
-
-* Government legal portals
-* Court judgments databases
-* Legal datasets
-
----
-
-# Future Improvements
-
-* Multilingual support (Hindi, Marathi, Tamil, etc.)
-* Voice-based legal assistant
-* Mobile application
-* Integration with legal aid services
-* Personalized legal guidance
