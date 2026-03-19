@@ -78,29 +78,3 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         "answer": ai_answer,
         "citations": retrieved_laws
     }
-
-    return {"answer": response}
-def chat_with_legal_ai(request: QueryRequest, db: Session = Depends(get_db)):
-    """
-    Full RAG Pipeline:
-    1. Search database for laws (Hybrid Search)
-    2. Send laws + query to Groq LLM
-    3. Return AI answer + source laws
-    """
-    print(f"User asked: {request.query}")
-    
-    # 1. Retrieve the relevant laws
-    retrieved_laws = hybrid_search(db=db, query=request.query, top_k=request.top_k)
-    
-    if isinstance(retrieved_laws, dict) and "error" in retrieved_laws:
-        raise HTTPException(status_code=500, detail=retrieved_laws["error"])
-        
-    # 2. Generate the AI Response using Groq
-    ai_answer = generate_legal_response(user_query=request.query, retrieved_contexts=retrieved_laws)
-    
-    # 3. Return both the English answer AND the raw citations
-    return {
-        "query": request.query,
-        "answer": ai_answer,
-        "citations": retrieved_laws # We send this so the frontend can display "Sources"
-    }
